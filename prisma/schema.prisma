@@ -1,0 +1,24 @@
+// ============================================================================
+// W2Inc, Amsterdam 2024, All Rights Reserved.
+// See README in the root project for more information.
+// ============================================================================
+
+generator client {
+    provider = "prisma-client-js"
+}
+
+datasource db {
+    provider = "sqlite"
+    url      = "file:./sqlite.db"
+}
+
+model Project {
+    id String @id
+
+    name String
+    active Boolean
+
+    script Bytes?
+
+    @@map("project")
+}

@@ -1,0 +1,22 @@
+{
+    "name": "nxtpeer",
+    "module": "index.ts",
+    "type": "module",
+    "private": true,
+    "scripts": {
+        "dev": "./scripts/startup.sh"
+    },
+    "devDependencies": {
+        "@types/bun": "latest",
+        "@prisma/client": "^6.13.0",
+        "openapi-typescript": "^7.9.1",
+        "tailwindcss": "^4.1.12"
+    },
+    "peerDependencies": {
+        "typescript": "^5"
+    },
+    "dependencies": {
+        "bun-plugin-tailwind": "^0.0.15",
+        "openapi-fetch": "^0.14.0"
+    }
+}

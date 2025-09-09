@@ -1,0 +1,7 @@
+.env
+node_modules/
+*.txt
+*.log
+*.db*
+.DS_Store
+.vscode/
