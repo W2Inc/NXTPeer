@@ -13,6 +13,8 @@ fi
 echo "Building custom Docker image..."
 cd "$(dirname "$0")/.."
 docker build -t w2inc/runner:latest -f src/docker/Dockerfile src/docker
+docker pull gcc:latest
+docker pull gcr.io/distroless/cc:latest
 
 # # Run database migrations if needed
 echo "Running database migrations..."
