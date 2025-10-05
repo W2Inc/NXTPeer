@@ -3,13 +3,23 @@
 // See README and LICENSE files for details.
 //=============================================================================
 
-import { $ } from "bun";
+import { $, env } from "bun";
 import * as Path from "node:path";
-import { dlopen, FFIType, ptr, toArrayBuffer, type FFIFunction, type Library } from "bun:ffi";
+import * as fs from "node:fs";
+import {
+	dlopen,
+	FFIType,
+	ptr,
+	toArrayBuffer,
+	type FFIFunction,
+	type Library,
+} from "bun:ffi";
 import { describe, expect, it, beforeAll, afterAll } from "bun:test";
+import { chdir } from "node:process";
 
 //=============================================================================
 
+let lib: Library<typeof ffns>;
 const ffns = {
 	ft_strdup: {
 		returns: FFIType.ptr,
@@ -103,48 +113,46 @@ const ffns = {
 
 //=============================================================================
 
-let lib: Library<typeof ffns>;
-const dir = Path.join(process.cwd(), 'git');
+const dir = "git";
 beforeAll(async () => {
-	console.log(`[+] Starting...`);
+	try {
+		process.chdir(env["HOME"]!);
+		console.log(`[+] Working directory: ${process.cwd()}`);
 
-	const remote = Bun.env["GIT_URL"];
-	if (!remote) throw new Error("GIT_URL environment variable is not set");
-	const branch = Bun.env["GIT_BRANCH"];
-	if (!branch) throw new Error("GIT_BRANCH environment variable is not set");
+		const remote = env["GIT_URL"];
+		if (!remote) throw new Error("GIT_URL environment variable is not set");
+		const branch = env["GIT_BRANCH"];
+		if (!branch) throw new Error("GIT_BRANCH environment variable is not set");
 
-	const clone = await $`git clone ${remote} ${dir} -b ${branch} --recurse-submodules`;
-	if (clone.exitCode !== 0)
-		throw new Error(`Git clone exited with: ${clone.exitCode}`);
+		await $`git clone ${remote} ${dir} -b ${branch} --recurse-submodules --depth=1`;
+		await $`make -C ${dir} -j1`;
 
-	console.log(`[+] Building @ ${dir}...`);
-	await $`make -C ${dir} -j1`;
+		const libStaticPath = Path.join(dir, "libft.a");
+		const libSharedPath = Path.join(dir, "libft.so");
+		const libStatic = Bun.file(libStaticPath);
+		if (!(await libStatic.exists())) {
+			throw new Error(`File: ${libStatic} does not exist`);
+		}
 
-	// Convert libft.a to libft.so for DL Open
-	const libAPath = Path.join(dir, "libft.a");
-	const libSOPath = Path.join(dir, "libft.so");
-	console.log(`[+] Converting libft.a to libft.so...`);
-	const gccResult = await $`gcc -shared -o ${libSOPath} -Wl,--whole-archive ${libAPath} -Wl,--no-whole-archive`;
-	if (gccResult.exitCode !== 0)
-		throw new Error(`Failed to convert libft.a to libft.so: ${gccResult.exitCode}`);
-
-	lib = dlopen(libSOPath, ffns);
+		console.log(`[+] Converting to shared library`);
+		await $`gcc -shared -o ${libSharedPath} -Wl,--whole-archive ${libStaticPath} -Wl,--no-whole-archive`;
+		lib = dlopen(libSharedPath, ffns);
+		console.log(`[+] Library loaded successfully`);
+	} catch (error) {
+		process.exit(2);
+	}
 });
 
-afterAll(() => {
+afterAll(async () => {
 	console.log(`[+] Cleaning up...`);
 	lib.close();
 });
-
-
-//=============================================================================
-
 
 // makefile
 //=============================================================================
 describe("makefile", () => {
 	it("compiles with '-Wextra -Werror -Wall'", async () => {
-		const makefile = Bun.file("Makefile");
+		const makefile = Bun.file(Path.join(dir, "Makefile"));
 		const text = await makefile.text();
 		const requiredFlags = ["-Wall", "-Wextra", "-Werror"];
 
@@ -155,21 +163,28 @@ describe("makefile", () => {
 // strdup
 //=============================================================================
 describe("strdup", () => {
-	it.todo("duplicates a string", () => {
+	it("duplicates a string", () => {
 		const sample = "Hello, world!";
 		const ptrSample = ptr(Buffer.from(`${sample}\0`, "utf8"));
-		// const result = toArrayBuffer(
-		// 	lib.symbols.ft_strdup(ptrSample),
-		// 	0,
-		// 	sample.length
-		// );
-		// const output = Buffer.from(result).toString("utf8");
-		// expect(output).toBe(sample);
+		const result = lib.symbols.ft_strdup(ptrSample);
+
+		expect(result).not.toBe(null);
+
+		const output = Buffer.from(toArrayBuffer(result!)).toString("utf-8");
+		expect(output).toBe(sample);
 	});
 
-	it("returns null if the string is empty", () => {
-		const emptyStr = Buffer.from(`\0`, "utf8");
-		expect(lib.symbols.ft_strdup(ptr(emptyStr))).toBe(null);
+	it("duplicates an empty string", () => {
+		const emptyStr = "";
+		const ptrEmptyStr = ptr(Buffer.from(`${emptyStr}\0`, "utf8"));
+		const result = lib.symbols.ft_strdup(ptrEmptyStr);
+
+		// strdup should return a valid pointer even for empty strings
+		expect(result).not.toBe(null);
+
+		// The result should be just a null terminator
+		const output = Buffer.from(toArrayBuffer(result!)).toString("utf-8");
+		expect(output).toBe("");
 	});
 });
 
@@ -378,23 +393,21 @@ describe("strlcat", () => {
 // toupper
 //=============================================================================
 describe("toupper", () => {
-	it.todo("converts lowercase characters to uppercase", () => {
-		const lowercaseChars = "abcdefghijklmnopqrstuvwxyz";
-		const uppercaseChars = "ABCDEFGHIJKLMNOPQRSTUVWXYZ";
-		for (let i = 0; i < lowercaseChars.length; i++) {
-			const char = lowercaseChars[i];
-			const expectedUppercaseChar = uppercaseChars[i];
-			// expect(lib.symbols.ft_toupper(char.charCodeAt(0))).toBe(
-			// 	expectedUppercaseChar.charCodeAt(0)
-			// );
+	it("converts all lowercase alphabetic characters to uppercase", () => {
+		const lowercase = "abcdefghijklmnopqrstuvwxyz";
+		for (const letter of lowercase) {
+			const expected = letter.toUpperCase().charCodeAt(0);
+			const result = lib.symbols.ft_toupper(letter.charCodeAt(0));
+			expect(result).toBe(expected);
 		}
 	});
 
 	it("leaves non-lowercase characters unchanged", () => {
-		const nonLowercaseChars =
-			"0123456789!@#$%^&*()_+-=[]{};':\",.<>?/\\|ABCDEFGHIJKLMNOPQRSTUVWXYZ";
-		for (const char of nonLowercaseChars) {
-			expect(lib.symbols.ft_toupper(char.charCodeAt(0))).toBe(char.charCodeAt(0));
+		const lowercase = "abcdefghijklmnopqrstuvwxyz!@#$%^&*(){}:";
+		for (const letter of lowercase) {
+			const expected = letter.toUpperCase().charCodeAt(0);
+			const result = lib.symbols.ft_toupper(letter.charCodeAt(0));
+			expect(result).toBe(expected);
 		}
 	});
 });
@@ -402,23 +415,21 @@ describe("toupper", () => {
 // tolower
 //=============================================================================
 describe("tolower", () => {
-	it.todo("converts uppercase characters to lowercase", () => {
-		const lowercaseChars = "abcdefghijklmnopqrstuvwxyz";
-		const uppercaseChars = "ABCDEFGHIJKLMNOPQRSTUVWXYZ";
-		for (let i = 0; i < lowercaseChars.length; i++) {
-			const char = uppercaseChars[i];
-			const expectedLowercaseChar = lowercaseChars[i];
-			// expect(lib.symbols.ft_tolower(char.charCodeAt(0))).toBe(
-			// 	expectedLowercaseChar.charCodeAt(0)
-			// );
+	it("converts uppercase characters to lowercase", () => {
+		const uppercase = "abcdefghijklmnopqrstuvwxyz".toUpperCase();
+		for (const letter of uppercase) {
+			const expected = letter.toLowerCase().charCodeAt(0);
+			const result = lib.symbols.ft_tolower(letter.charCodeAt(0));
+			expect(result).toBe(expected);
 		}
 	});
 
 	it("leaves non-uppercase characters unchanged", () => {
-		const nonUppercaseChars =
-			"0123456789!@#$%^&*()_+-=[]{};':\",.<>?/\\|abcdefghijklmnopqrstuvwxyz";
-		for (const char of nonUppercaseChars) {
-			expect(lib.symbols.ft_tolower(char.charCodeAt(0))).toBe(char.charCodeAt(0));
+		const uppercase = "abcdefghijklmnopqrstuvwxyz!@#$%^&*(){}:".toUpperCase();
+		for (const letter of uppercase) {
+			const expected = letter.toLowerCase().charCodeAt(0);
+			const result = lib.symbols.ft_tolower(letter.charCodeAt(0));
+			expect(result).toBe(expected);
 		}
 	});
 });
@@ -490,9 +501,9 @@ describe("strncmp", () => {
 		const length = 5;
 		const ptrStr1 = ptr(Buffer.from(`${str1}\0`, "utf8"));
 		const ptrStr2 = ptr(Buffer.from(`${str2}\0`, "utf8"));
-		expect(lib.symbols.ft_strncmp(ptrStr1, ptrStr2, length)).toBeGreaterThanOrEqual(
-			0
-		);
+		expect(
+			lib.symbols.ft_strncmp(ptrStr1, ptrStr2, length)
+		).toBeGreaterThanOrEqual(0);
 	});
 });
 

@@ -9,13 +9,13 @@ generator client {
 
 datasource db {
     provider = "sqlite"
-    url      = "file:./sqlite.db"
+    url      = env("DATABASE_URL_PRISMA")
 }
 
 model Project {
     id String @id
 
-    name String
+    name   String
     active Boolean
 
     script Bytes?

@@ -3981,6 +3981,10 @@ export interface components {
         AuthConfig: {
             username?: string;
             password?: string;
+            /** @description Email is an optional value associated with the username.
+             *
+             *     > **Deprecated**: This field is deprecated since docker 1.11 (API v1.23) and will be removed in a future release.
+             *      */
             email?: string;
             serveraddress?: string;
         };
@@ -5671,9 +5675,12 @@ export interface components {
                  *      */
                 Platforms?: components["schemas"]["Platform"][];
             };
-            /** @description A counter that triggers an update even if no relevant parameters have
+            /**
+             * Format: uint64
+             * @description A counter that triggers an update even if no relevant parameters have
              *     been changed.
-             *      */
+             *
+             */
             ForceUpdate?: number;
             /** @description Runtime is the type of runtime specified for the task executor.
              *      */

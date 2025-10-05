@@ -6,8 +6,8 @@
 import { sql } from "bun";
 import Logger from "./logger";
 import { AsyncLocalStorage } from "node:async_hooks";
-import type { Project } from "@prisma/client";
 import repository from "./docker/remote";
+import code, { type Payload } from "./docker/code";
 
 //=============================================================================
 
@@ -36,14 +36,6 @@ if (import.meta.main) {
 		process.exit(1);
 	}
 
-	// const lel = Bun.file('./projects/libft/index.test.ts');
-	// await sql`INSERT INTO project ${sql({
-	// 	id: Bun.randomUUIDv7('base64url'),
-	// 	name: '1',
-	// 	active: true,
-	// 	script: await lel.bytes()
-	// } satisfies Project)}`
-
 	Logger.inf("Database connected.");
 	await sql`PRAGMA journal_mode = WAL`;
 	await sql`PRAGMA journal_size_limit = 67108864`; // 64MB
@@ -58,7 +50,19 @@ if (import.meta.main) {
 		routes: {
 			"/evaluate/code": {
 				async POST(req, srv) {
-					return new Response(null, { status: 404 });
+					const form = await req.formData();
+					const source = form.get("code")?.toString();
+					const lang = form.get("lang")?.toString() as Payload['lang'];
+					if (!lang || !source) {
+						return new Response(null, { status: 400 });
+					}
+
+					return code({
+						lang,
+						flags: form.get('flags')?.toString(),
+						args: form.getAll('args').map((v) => v.toString()),
+						code: source
+					});
 				},
 			},
 			"/evaluate/git/:project": {
@@ -104,7 +108,6 @@ if (import.meta.main) {
 					try {
 						// Set up the context with the ID
 						context.enterWith({ id: requestId });
-						Logger.inf("Should show the id...");
 						return await Promise.race([response, aborted]);
 					} catch (e) {
 						return new Response(null, { status: 500 });

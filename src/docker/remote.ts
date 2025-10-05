@@ -31,6 +31,7 @@ export default async function repository(name: string, data: Remote) {
 	const script = Buffer.from(project.script).toString("base64");
 	const container = new Docker.Container({
 		...Docker.PAYLOAD,
+		Image: "w2inc/runner:latest",
 		Env: [
 			`GIT_URL=${data.remote}`,
 			`GIT_BRANCH=${data.branch}`,
@@ -40,7 +41,7 @@ export default async function repository(name: string, data: Remote) {
 			"/bin/sh",
 			"-c",
 			// Pass the script via stdin, then keep container running
-			`echo '${script}' | base64 -d > /home/index.test.ts && bun test --timeout 20000;`, // tail -f /dev/null
+			`echo '${script}' | base64 -d > "$HOME/index.test.ts" && bun test --timeout 20000;`,
 		],
 	});
 
@@ -58,6 +59,8 @@ export default async function repository(name: string, data: Remote) {
 				return response;
 			case 1:
 				return new Response(response.body, { status: 422 });
+			case 2:
+				return Response.json(new Error('Script failure, please contact staff!'), { status: 500 });
 			default:
 				throw new Error(`Unexpected exit code: ${code}`);
 		}

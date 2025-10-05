@@ -71,7 +71,6 @@ export namespace Docker {
 	});
 
 	export const PAYLOAD: Omit<Payload, "Env" | "Cmd"> = {
-		Image: "w2inc/runner:latest",
 		Tty: false,
 		NetworkDisabled: false,
 		AttachStdin: false,
@@ -100,7 +99,7 @@ export namespace Docker {
 
 		/** Start the container */
 		public async start() {
-			Logger.inf(`Creating container:`, this.payload.Env);
+			Logger.inf(`Creating container...`, this.payload.Image ?? 'Unknown');
 			if (!this.id) {
 				const result = await this.verify(
 					socket.POST("/containers/create", {
