@@ -22,24 +22,36 @@ export interface Payload {
 
 //=============================================================================
 
+class CompilationError extends Error {
+	constructor(message: string) {
+		super(message);
+		this.name = "CompilationError";
+	}
+}
+
+class ExecutionError extends Error {
+	constructor(message: string) {
+		super(message);
+		this.name = "ExecutionError";
+	}
+}
+
+//=============================================================================
+
 /**
  * Run a compile container to produce an executable out of the source code.
  * @param workDir The working directory containing the source file
- * @param sourceFileName The source file name (without path)
+ * @param sourceFile The source file name (without path)
  * @param data Payload containing compilation options
  * @returns The executable name
  */
-async function compile(
-	workDir: string,
-	sourceFileName: string,
-	data: Payload
-): Promise<string> {
-	const flags = data.flags ?? "";
+async function compile(workDir: string, sourceFile: string, data: Payload) {
+	const flags = data.flags?.split(' ') ?? ["-Wall", "-Wextra"];
 	const executableName = Bun.randomUUIDv7("base64url");
 	const container = new Docker.Container({
 		...Docker.PAYLOAD,
 		Image: "gcc:latest",
-		Cmd: ["gcc", "-o", executableName, sourceFileName],
+		Cmd: ["gcc", ...flags, "-o", executableName, sourceFile],
 		WorkingDir: "/workspace",
 		HostConfig: {
 			AutoRemove: true,
@@ -52,12 +64,12 @@ async function compile(
 	});
 
 	await container.start();
-	const logs = await container.logs();
+	const logs = Docker.read(await container.logs());
 	const exit = await container.wait();
 
 	if (exit !== 0) {
-		Logger.err("Compilation failed:", Docker.read(logs));
-		throw new Error("Failed to compile");
+		Logger.wrn("Compilation failed", logs);
+		throw new CompilationError(logs);
 	}
 
 	return executableName;
@@ -90,13 +102,14 @@ async function exec(workDir: string, executableName: string, data: Payload) {
 	});
 
 	await container.start();
-	const logs = await container.logs();
-	const exitCode = await container.wait();
+	const logs = Docker.read(await container.logs());
+	const exit = await container.wait();
+	if (exit !== 0) {
+		Logger.wrn("Execution failed");
+		throw new ExecutionError(logs);
+	}
 
-	// Return logs with appropriate status code based on program exit code
-	return new Response(Docker.read(logs), {
-		status: exitCode === 0 ? 200 : 422,
-	});
+	return logs;
 }
 
 //=============================================================================
@@ -112,35 +125,35 @@ export default async function code(data: Payload) {
 	}
 
 	try {
-		// Create a temporary directory with unique ID
 		const id = Bun.randomUUIDv7("base64url");
 		const workDir = path.join(tmpdir(), id);
 		await mkdir(workDir, { recursive: true });
 
-		// Write source code to file
 		const sourceFileName = `${filename}.${data.lang}`;
 		const sourceFilePath = path.join(workDir, sourceFileName);
 		await Bun.write(Bun.file(sourceFilePath), data.code);
-
 		Logger.dbg(`Source written to ${sourceFilePath}`);
 
-		// Compile the code
 		const executableName = await compile(workDir, sourceFileName, data);
 		Logger.dbg(`Compilation successful, executable: ${executableName}`);
 
-		// Execute the compiled code
-		const response = await exec(workDir, executableName, data);
+		const output = await exec(workDir, executableName, data);
 		const cleanup = await $`rm -rf ${workDir}`;
 		if (cleanup.exitCode !== 0) {
 			Logger.err(`Failed to clean up directory: ${workDir}`, cleanup.stderr);
 		}
 
-		return response;
+		return new Response(output, { status: 200 });
 	} catch (error) {
-		Logger.err("Error processing code execution:", error);
-		return new Response(
-			error instanceof Error ? error.message : "Unknown error",
-			{ status: 500 }
-		);
+		if (error instanceof CompilationError) {
+			const msg = `[Compilation Error]\n${error.message}`;
+			return new Response(msg, { status: 422 });
+		} else if (error instanceof ExecutionError) {
+			const msg = `[Execution Error]\n${error.message}`;
+			return new Response(msg, { status: 422 });
+		}
+
+		Logger.err("Unknown error during code execution:", error);
+		return new Response('Unknown Error', { status: 500 });
 	}
 }

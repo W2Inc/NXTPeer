@@ -41,7 +41,7 @@ export default async function repository(name: string, data: Remote) {
 			"/bin/sh",
 			"-c",
 			// Pass the script via stdin, then keep container running
-			`echo '${script}' | base64 -d > "$HOME/index.test.ts" && bun test --timeout 20000;`,
+			`echo '${script}' | base64 -d > "$HOME/index.test.ts" && cd $HOME && pwd && ls -lah && bun test --timeout 20000;`,
 		],
 	});
 

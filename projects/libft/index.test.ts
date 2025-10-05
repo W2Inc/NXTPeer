@@ -5,7 +5,6 @@
 
 import { $, env } from "bun";
 import * as Path from "node:path";
-import * as fs from "node:fs";
 import {
 	dlopen,
 	FFIType,
@@ -15,7 +14,6 @@ import {
 	type Library,
 } from "bun:ffi";
 import { describe, expect, it, beforeAll, afterAll } from "bun:test";
-import { chdir } from "node:process";
 
 //=============================================================================
 

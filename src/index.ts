@@ -50,7 +50,17 @@ if (import.meta.main) {
 		routes: {
 			"/evaluate/code": {
 				async POST(req, srv) {
-					const form = await req.formData();
+					const [form, error] = await ensure(req.formData());
+					if (error) {
+						return new Response(null, {
+							status: 400,
+							headers: {
+								"Content-Type": "application/json",
+								Accept: "multipart/form-data",
+							},
+						});
+					}
+
 					const source = form.get("code")?.toString();
 					const lang = form.get("lang")?.toString() as Payload['lang'];
 					if (!lang || !source) {
